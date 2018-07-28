@@ -57,6 +57,7 @@ ssh-add ~/.ssh/osh-contrail-key-pair-ubuntu.pem
 # Environment Setup
 ##########################################################################
 sudo yum update -y
+sudo yum groupinstall -y 'Development Tools'
 #sudo systemctl reboot
 sudo yum install -y https://centos7.iuscommunity.org/ius-release.rpm
 sudo yum install -y git python35u python35u-pip python35u-devel java-1.8.0-openjdk
