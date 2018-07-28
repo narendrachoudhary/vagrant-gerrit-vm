@@ -1,4 +1,4 @@
-g!/usr/bin/env bash
+#!/usr/bin/env bash
 
 export http_proxy=
 export https_proxy=
