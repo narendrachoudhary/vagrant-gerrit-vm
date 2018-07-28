@@ -86,7 +86,7 @@ sudo systemctl enable zookeeper-server.service
 # Install Nodepool
 ##########################################################################
 sudo adduser --system nodepool --home-dir /var/lib/nodepool --create-home
-ssh-keygen -t rsa -b 2048 -f nodepool_rsa  # don't enter a passphrase
+ssh-keygen -t rsa -b 2048 -f nodepool_rsa -N "" -P "" # don't enter a passphrase
 sudo mkdir /etc/nodepool/
 sudo mkdir /var/log/nodepool
 sudo chgrp -R nodepool /var/log/nodepool/
