@@ -3,12 +3,9 @@
 export http_proxy=
 export https_proxy=
 
-export HOST_IP=203.0.113.108
-export FLOATING_RANGE="203.0.113.0/24"
-export IPV4_ADDRS_SAFE_TO_USE="10.0.0.0/22"
-export PUBLIC_NETWORK_GATEWAY="203.0.113.1"
-export PUBLIC_INTERFACE=enp0s8
-export host_username=vagrant
+export NODEPOOL_RES_IP=10.10.90.7
+export HOST_IP=10.10.90.7
+export host_username=centos
 export WORKSPACE=$PWD
 export no_proxy=127.0.0.1,$HOST_IP
 
@@ -20,7 +17,6 @@ Acquire::http::Proxy "$http_proxy";
 Acquire::https::Proxy "$https_proxy";
 EOF
 fi
-
 
 echo "-----BEGIN RSA PRIVATE KEY-----
 MIIEogIBAAKCAQEA3MHSuV4XuMMJZIEnT6y+tc2dVBVIZhh7IkuTFXrVPhhWvrzU
@@ -58,18 +54,158 @@ chmod 600 ~/.ssh/osh-contrail-key-pair-ubuntu.pem
 eval $(ssh-agent -s)
 ssh-add ~/.ssh/osh-contrail-key-pair-ubuntu.pem
 
-# Steps to install and configure devstack
-sudo apt-get update -y
-sudo apt-get install openjdk-8-jdk
-sudo apt-get -y install git vim-gtk libxml2-dev libxslt1-dev libpq-dev python-pip libsqlite3-dev 
+# Environment Setup
+##########################################################################
+sudo yum update -y
+#sudo systemctl reboot
+sudo yum install -y https://centos7.iuscommunity.org/ius-release.rpm
+sudo yum install -y git python35u python35u-pip python35u-devel java-1.8.0-openjdk
+sudo alternatives --install /usr/bin/python3 python3 /usr/bin/python3.5 10
+sudo alternatives --install /usr/bin/pip3 pip3 /usr/bin/pip3.5 10
+sudo pip3 install python-openstackclient bindep
 
-# NOTE: change default java version by `sudo update-alternatives --config java`
+sudo bash -c "cat << EOF > /etc/yum.repos.d/bigtop.repo
+[bigtop]
+name=Bigtop
+enabled=1
+gpgcheck=1
+type=NONE
+baseurl=http://repos.bigtop.apache.org/releases/1.2.1/centos/7/x86_64
+gpgkey=https://dist.apache.org/repos/dist/release/bigtop/KEYS
+EOF"
 
-cd $WORKSPACE; wget https://www.gerritcodereview.com/download/gerrit-2.15.1.war
-java -jar gerrit*.war init --batch --dev -d $WORKSPACE/gerrit_testsite
+sudo yum install -y zookeeper zookeeper-server
+sudo systemctl start zookeeper-server.service
+sudo systemctl status zookeeper-server.service
+sudo systemctl enable zookeeper-server.service
 
-$WORKSPACE/gerrit_testsite/bin/gerrit.sh start
+##########################################################################
 
 
+# Install Nodepool
+##########################################################################
+sudo adduser --system nodepool --home-dir /var/lib/nodepool --create-home
+ssh-keygen -t rsa -b 2048 -f nodepool_rsa  # don't enter a passphrase
+sudo mkdir /etc/nodepool/
+sudo mkdir /var/log/nodepool
+sudo chgrp -R nodepool /var/log/nodepool/
+sudo chmod 775 /var/log/nodepool/
 
+git clone https://git.zuul-ci.org/nodepool
+cd nodepool/
+sudo yum -y install $(bindep -b)
+sudo pip3 install .
+
+sudo cp etc/nodepool-launcher.service /etc/systemd/system/nodepool-launcher.service
+sudo chmod 0644 /etc/systemd/system/nodepool-launcher.service
+
+sudo mkdir /etc/systemd/system/nodepool-launcher.service.d
+sudo cp etc/nodepool-launcher.service.d/centos.conf \
+     /etc/systemd/system/nodepool-launcher.service.d/centos.conf
+sudo chmod 0644 /etc/systemd/system/nodepool-launcher.service.d/centos.conf
+##########################################################################
+
+
+# Install Zuul
+##########################################################################
+sudo adduser --system zuul --home-dir /var/lib/zuul --create-home
+sudo mkdir /etc/zuul/
+sudo mkdir /var/log/zuul/
+sudo chown zuul.zuul /var/log/zuul/
+sudo mkdir /var/lib/zuul/.ssh
+sudo chmod 0700 /var/lib/zuul/.ssh
+sudo mv nodepool_rsa /var/lib/zuul/.ssh
+sudo chown -R zuul.zuul /var/lib/zuul/.ssh
+
+git clone https://git.zuul-ci.org/zuul
+cd zuul/
+sudo yum -y install $(bindep -b)
+sudo pip3 install .
+
+sudo cp etc/zuul-scheduler.service /etc/systemd/system/zuul-scheduler.service
+sudo cp etc/zuul-executor.service /etc/systemd/system/zuul-executor.service
+sudo cp etc/zuul-web.service /etc/systemd/system/zuul-web.service
+sudo chmod 0644 /etc/systemd/system/zuul-scheduler.service
+sudo chmod 0644 /etc/systemd/system/zuul-executor.service
+sudo chmod 0644 /etc/systemd/system/zuul-web.service
+
+sudo mkdir /etc/systemd/system/zuul-scheduler.service.d
+sudo cp etc/zuul-scheduler.service.d/centos.conf \
+    /etc/systemd/system/zuul-scheduler.service.d/centos.conf
+sudo chmod 0644 /etc/systemd/system/zuul-scheduler.service.d/centos.conf
+sudo mkdir /etc/systemd/system/zuul-executor.service.d
+sudo cp etc/zuul-executor.service.d/centos.conf \
+    /etc/systemd/system/zuul-executor.service.d/centos.conf
+sudo chmod 0644 /etc/systemd/system/zuul-executor.service.d/centos.conf
+sudo mkdir /etc/systemd/system/zuul-web.service.d
+sudo cp etc/zuul-web.service.d/centos.conf \
+    /etc/systemd/system/zuul-web.service.d/centos.conf
+sudo chmod 0644 /etc/systemd/system/zuul-web.service.d/centos.conf
+
+##########################################################################
+
+# Configure Nodepool
+##########################################################################
+ssh-keyscan -t ed25519 $NODEPOOL_RES_IP >> /tmp/key_scan
+KEY_SCAN=`cat /tmp/key_scan`
+
+sudo bash -c "cat << EOF > /etc/nodepool/nodepool.yaml
+zookeeper-servers:
+  - host: localhost
+
+labels:
+  - name: ubuntu-xenial
+
+providers:
+  - name: static-vms
+    driver: static
+    pools:
+      - name: main
+        nodes:
+          - name: $NODEPOOL_RES_IP
+            labels: ubuntu-xenial
+            host-key: "$KEY_SCAN"
+            username: zuul
+EOF
+##########################################################################
+
+# Configure Zuul
+##########################################################################
+sudo bash -c "cat > /etc/zuul/main.yaml <<EOF
+- tenant:
+    name: quickstart
+EOF"
+
+sudo bash -c "cat > /etc/zuul/zuul.conf <<EOF
+[gearman]
+server=127.0.0.1
+
+[gearman_server]
+start=true
+
+[executor]
+private_key_file=/var/lib/zuul/.ssh/nodepool_rsa
+
+[web]
+listen_address=0.0.0.0
+
+[scheduler]
+tenant_config=/etc/zuul/main.yaml
+EOF"
+
+sudo systemctl daemon-reload
+
+sudo systemctl start nodepool-launcher.service
+sudo systemctl status nodepool-launcher.service
+sudo systemctl enable nodepool-launcher.service
+
+sudo systemctl start zuul-scheduler.service
+sudo systemctl status zuul-scheduler.service
+sudo systemctl enable zuul-scheduler.service
+sudo systemctl start zuul-executor.service
+sudo systemctl status zuul-executor.service
+sudo systemctl enable zuul-executor.service
+sudo systemctl start zuul-web.service
+sudo systemctl status zuul-web.service
+sudo systemctl enable zuul-web.service
 
