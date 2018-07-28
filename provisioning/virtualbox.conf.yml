@@ -1,0 +1,7 @@
+g--
+box: "tknerr/ubuntu1604-desktop"
+gerrit_vm:
+  host_name: gerrit_vm
+  memory: 6144
+  cpus: 2
+  provider_ip: "203.0.113.108"
