@@ -85,6 +85,7 @@ sudo systemctl enable zookeeper-server.service
 
 # Install Nodepool
 ##########################################################################
+cd $WORKSPACE
 sudo adduser --system nodepool --home-dir /var/lib/nodepool --create-home
 ssh-keygen -t rsa -b 2048 -f nodepool_rsa -N "" -P "" # don't enter a passphrase
 sudo mkdir /etc/nodepool/
@@ -109,6 +110,7 @@ sudo chmod 0644 /etc/systemd/system/nodepool-launcher.service.d/centos.conf
 
 # Install Zuul
 ##########################################################################
+cd $WORKSPACE
 sudo adduser --system zuul --home-dir /var/lib/zuul --create-home
 sudo mkdir /etc/zuul/
 sudo mkdir /var/log/zuul/
